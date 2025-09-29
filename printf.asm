@@ -4,20 +4,16 @@ section .text
 global SimplePrintf
 
 ;------------------------------------------------
-; Printf function
-; calling convention:
-;       Entry: rdi, rsi, rdx, rcx, r8, r9, stack
-;       rdi - string address
-;       Exit: rax -number of characters transmitted
-;             to the output stream or negative value
-;             if an output error or an encoding error
-;             (for string and character conversion specifiers)
-;             occurred.
-;       Convention:
-;       rax, rcx, rdx, rsi, rdi, r8-r11 - caller-saved
-;       rbx, rbp, r12-15 - callee-saved
+; SimplePrintf function
+; printf parody
+; Entry: rdi, rsi, rdx, rcx, r8, r9, stack
+; rdi - string address
+; Exit: rax -number of characters transmitted
+;       to the output stream or negative value
+;       if an output error or an encoding error
+;       (for string and character conversion specifiers)
+;       occurred.
 ;-----------------------------------------------
-
 SimplePrintf:
     push rbp
     mov rbp, rsp
@@ -50,7 +46,7 @@ SimplePrintf:
     xor rbx, rbx ; cleaning rbx for symbol code storing
     xor rax, rax ; cleaning rax for arithmetics
 
-next_symbol:
+process_next_symbol:
     mov bl, [rdi] ; get symbol
     inc rdi ; rdi - address of the next symbol in the format string
 
@@ -60,44 +56,44 @@ next_symbol:
     cmp bl, PercentageCode
     je .specifier_processing ; if '%'
 
-.insert_symbol:
-    mov [Buffer + r10], bl ; insert next character to the buffer
-    inc r10
-    call CheckBuffer   
+    .insert_symbol:
+        mov [Buffer + r10], bl ; insert next character to the buffer
+        inc r10
+        call CheckBuffer   
 
-    jmp next_symbol
+        jmp process_next_symbol
 
-.specifier_processing:
-    mov bl, [rdi] ; bl - name of specifier
-    inc rdi
-    cmp bl, PercentageCode
-    je .insert_symbol
+    .specifier_processing:
+        mov bl, [rdi] ; bl - name of specifier
+        inc rdi
+        cmp bl, PercentageCode
+        je .insert_symbol
 
-    inc rcx ; need get next argument, passed after format string
-    cmp rcx, 5h
-    ja .get_arg_passed_by_stack ; if all parameters passed by registers were used
+        inc rcx ; need get next argument, passed after format string
+        cmp rcx, 5h
+        ja .get_arg_passed_by_stack ; if all parameters passed by registers were used
 
-    push rsi
-    mov rsi, rbp
-    shl rcx, 3h
-    sub rsi, rcx ; mov rsi, rbp - rcx * 8
-    shr rcx, 3h
-    mov r13, [rsi] ; save next argument for processing
-    pop rsi
+        push rsi
+        mov rsi, rbp
+        shl rcx, 3h
+        sub rsi, rcx ; mov rsi, rbp - rcx * 8
+        shr rcx, 3h
+        mov r13, [rsi] ; save next argument for processing
+        pop rsi
 
-    jmp [r11 + rbx * 8] ; jump to the corresponding processer
+        jmp [r11 + rbx * 8] ; jump to the corresponding processer
 
-.get_arg_passed_by_stack:
-    mov r13, [rbp + r12] ; save next parameter passed via stack
-    add r12, 8h ; [rbp + r12] - next stack argument
-    jmp [r11 + rbx * 8] ; jump to the corresponding processer
+    .get_arg_passed_by_stack:
+        mov r13, [rbp + r12] ; save next parameter passed via stack
+        add r12, 8h ; [rbp + r12] - next stack argument
+        jmp [r11 + rbx * 8] ; jump to the corresponding processer
 
 char:
     mov [Buffer + r10], r13b ; write this byte to the buffer
     inc r10
     call CheckBuffer
 
-    jmp next_symbol
+    jmp process_next_symbol
 
 dec_int:
     mov eax, r13d ; move argument to the rax
@@ -111,12 +107,12 @@ dec_int:
 
     neg eax ; get corresponding positive value
 
-.positive_dec:
-    push rdx ; save register
-    push rcx ; save argument counter for using rcx as digit counter
-    xor rdx, rdx ; eax -> edx:eax
-    xor rcx, rcx
-    mov rbx, 0ah
+    .positive_dec:
+        push rdx ; save register
+        push rcx ; save argument counter for using rcx as digit counter
+        xor rdx, rdx ; eax -> edx:eax
+        xor rcx, rcx
+        mov rbx, 0ah
 
     .next_dec_digit:
         inc rcx ; +1 digit in number
@@ -137,7 +133,7 @@ dec_int:
 
     pop rcx
     pop rdx
-    jmp next_symbol
+    jmp process_next_symbol
 
 
 octal_int:
@@ -168,7 +164,7 @@ octal_int:
 
     pop rcx
     pop rdx
-    jmp next_symbol
+    jmp process_next_symbol
 
 hex_int:
     mov eax, r13d ; move argument to the rax
@@ -207,7 +203,7 @@ hex_int:
 
     pop rcx
     pop rdx
-    jmp next_symbol
+    jmp process_next_symbol
 
 string:
     push rcx ; save for string length storing
@@ -215,55 +211,56 @@ string:
     push rdx ; save for storing charachters
     push r13 ; save string address
 
-.next_char:
-    mov dl, [r13]
-    cmp dl, NullCode
-    je .counting_end
+    .next_char:
+        mov dl, [r13]
+        cmp dl, NullCode
+        je .counting_end
 
-    inc rcx ; string length += 1
-    inc r13 ; point to the next charachter
-    jmp .next_char   
+        inc rcx ; string length += 1
+        inc r13 ; point to the next charachter
+        jmp .next_char   
 
-.counting_end:
-    pop r13
-    cmp rcx, BufferCapacity
-    ja .dump_string
+    .counting_end:
+        pop r13 ; string address
+        cmp rcx, BufferCapacity
+        ja .dump_string ; if length of the string bigger than all buffer capacity
+                        ; we dump string by separate syscall
 
-    push rbx
-    xor rbx, rbx
-    mov rbx, BufferCapacity
-    sub rbx, r10
-    cmp rcx, rbx
-    jb .fill_buffer
+        push rbx
+        xor rbx, rbx
+        mov rbx, BufferCapacity
+        sub rbx, r10 ; rbx - free buffer space
+        cmp rcx, rbx
+        jb .fill_buffer ; if we have enough space - write string to the buffer
 
-    call DumpBuffer ; if string bigger than free space in buffer
+        call DumpBuffer ; if string bigger than free space in buffer
 
-.fill_buffer:
-    pop rbx
+    .fill_buffer:
+        pop rbx
 
-    .store_next_char:
-        mov cl, [r13]
-        inc r13
-        cmp cl, NullCode
-        je .string_end
+        .store_next_char:
+            mov cl, [r13] ; get next string element
+            inc r13
+            cmp cl, NullCode
+            je .string_end
 
-        mov [Buffer + r10], cl
-        inc r10
-        jmp .store_next_char
+            mov [Buffer + r10], cl ; store charachter in the buffer
+            inc r10
+            jmp .store_next_char
 
 
-.dump_string:
-    push rsi
-    mov rsi, r13
-    xor rdx, rdx
-    mov rdx, rcx
-    call WriteSyscall ; write (1, buffer (rsi), buffer_size (rdx))
-    pop rsi
+    .dump_string:
+        push rsi
+        mov rsi, r13 ; save argument string for dump
+        xor rdx, rdx
+        mov rdx, rcx ; rdx - string length
+        call WriteSyscall ; write (1, buffer (rsi), buffer_size (rdx))
+        pop rsi
 
 .string_end:
     pop rdx
     pop rcx
-    jmp next_symbol
+    jmp process_next_symbol
     
 
 exit:
@@ -278,12 +275,15 @@ exit:
     ret
 ;------------------------------------------------
 
+
+;------------------------------------------------
+; Description: This function dump all buffer in stdout
+;              and update buffer position
+; Entry: r10 - buffer size
+;------------------------------------------------
 DumpBuffer:
-    push rdi
     push rsi
     push rdx
-    push rcx
-    push r11
 
     mov rsi, Buffer
     xor rdx, rdx
@@ -292,16 +292,17 @@ DumpBuffer:
 
     xor r10, r10
 
-    pop r11
-    pop rcx
     pop rdx
     pop rsi
-    pop rdi
     ret
 ;------------------------------------------------
 
-;------------------------------------------------
 
+;------------------------------------------------
+; Description: Wrapper for write syscall (write in stdout)
+; Entry: rsi - buffer address
+;        rdx - buffer size
+;------------------------------------------------
 WriteSyscall:
     push rax
     push rdi
@@ -318,11 +319,15 @@ WriteSyscall:
     pop rdi
     pop rax
     ret   
-
 ;------------------------------------------------
 
+
+;------------------------------------------------
+; Description: This function check buffer fullness
+;              and dump it if full.
+; Entry: r10 - buffer's current size
+;------------------------------------------------
 CheckBuffer:
-    push rax
     cmp r10, BufferCapacity
     jb .exit
 
@@ -330,7 +335,6 @@ CheckBuffer:
     xor r10, r10
 
 .exit:
-    pop rax
     ret
 ;------------------------------------------------
 
@@ -353,7 +357,7 @@ Specifiers:
 
 section .bss
 ;------------------------------------------------
-BufferCapacity equ 2
+BufferCapacity equ 128
 Buffer: resb BufferCapacity
 ;------------------------------------------------
 ;------------------------------------------------
