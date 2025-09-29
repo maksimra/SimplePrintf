@@ -216,8 +216,8 @@ string:
     push r13 ; save string address
 
 .next_char:
-    mov rdx, [r13]
-    cmp rdx, NullCode
+    mov dl, [r13]
+    cmp dl, NullCode
     je .counting_end
 
     inc rcx ; string length += 1
@@ -242,12 +242,12 @@ string:
     pop rbx
 
     .store_next_char:
-        mov ch, [r13]
+        mov cl, [r13]
         inc r13
-        cmp ch, NullCode
+        cmp cl, NullCode
         je .string_end
 
-        mov [Buffer + r10], ch
+        mov [Buffer + r10], cl
         inc r10
         jmp .store_next_char
 
@@ -258,11 +258,12 @@ string:
     xor rdx, rdx
     mov rdx, rcx
     call WriteSyscall ; write (1, buffer (rsi), buffer_size (rdx))
+    pop rsi
 
 .string_end:
     pop rdx
     pop rcx
-    jmp next_char
+    jmp next_symbol
     
 
 exit:
@@ -284,13 +285,10 @@ DumpBuffer:
     push rcx
     push r11
 
-    StdOutDescr equ 1
-    mov rax, 1h ; write syscall number
-    mov rdi, StdOutDescr
     mov rsi, Buffer
     xor rdx, rdx
     mov rdx, r10
-    syscall ; write(1, Buffer, BufferSize)
+    call WriteSyscall ; write (1, buffer (rsi), buffer_size (rdx))
 
     xor r10, r10
 
@@ -355,7 +353,7 @@ Specifiers:
 
 section .bss
 ;------------------------------------------------
-BufferCapacity equ 128
+BufferCapacity equ 2
 Buffer: resb BufferCapacity
 ;------------------------------------------------
 ;------------------------------------------------
